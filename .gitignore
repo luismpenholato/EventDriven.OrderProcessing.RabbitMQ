@@ -1,0 +1,38 @@
+## .NET
+bin/
+obj/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## IDE
+.vs/
+.vscode/
+.idea/
+
+## EF / local databases
+*.db
+*.db-shm
+*.db-wal
+
+## Logs
+logs/
+*.log
+
+## Docker / secrets
+.env
+.env.local
+.env.*.local
+
+## OS
+Thumbs.db
+.DS_Store
+
+## Test / coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
