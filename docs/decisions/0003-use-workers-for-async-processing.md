@@ -1,19 +1,19 @@
-# ADR 0003: Workers para processamento assíncrono
+# ADR 0003: Workers for async processing
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-Pagamento, estoque e notificações não precisam de API HTTP síncrona.
+Payment, inventory, and notification steps do not require a synchronous HTTP API. They are naturally message-driven.
 
-## Decisão
+## Decision
 
-Implementar `Payments.Worker`, `Inventory.Worker` e `Notifications.Worker` como hosts dedicados consumindo filas.
+Implement `Payments.Worker`, `Inventory.Worker`, and `Notifications.Worker` as dedicated hosts consuming RabbitMQ queues via MassTransit.
 
-## Consequências
+## Consequences
 
-- Escalabilidade horizontal por tipo de worker
-- API de pedidos permanece enxuta
-- Deploy independente por serviço
+- Horizontal scalability per worker type
+- Orders API remains focused on HTTP and order state
+- Independent deployment per service (in a real environment)

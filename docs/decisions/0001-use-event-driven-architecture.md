@@ -1,19 +1,19 @@
-# ADR 0001: Arquitetura orientada a eventos
+# ADR 0001: Event-driven architecture
 
 ## Status
 
-Aceito
+Accepted
 
-## Contexto
+## Context
 
-O processamento de pedidos envolve etapas independentes (pagamento, estoque, notificação) com tempos de resposta distintos.
+Order processing involves independent steps (payment, inventory, notification) with different response times and failure domains. A synchronous, monolithic approach would couple services and reduce scalability.
 
-## Decisão
+## Decision
 
-Adotar comunicação assíncrona via eventos de integração em RabbitMQ, com serviços desacoplados e bancos separados.
+Adopt asynchronous communication via integration events on RabbitMQ, with decoupled services and separate databases per bounded context.
 
-## Consequências
+## Consequences
 
-- Melhor escalabilidade e isolamento de falhas
-- Consistência eventual em vez de transacional global
-- Maior complexidade operacional (mensageria, observabilidade)
+- Better scalability and failure isolation
+- Eventual consistency instead of global transactional consistency
+- Higher operational complexity (messaging, observability, idempotency)

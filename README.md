@@ -1,18 +1,20 @@
 # EventDriven.OrderProcessing.RabbitMQ
 
-Projeto de portfólio que demonstra **arquitetura orientada a eventos** com .NET 10, RabbitMQ, MassTransit, EF Core e PostgreSQL.
+Production-like event-driven order processing system built with .NET 10, RabbitMQ, MassTransit, PostgreSQL, EF Core, Clean Architecture, Outbox Pattern, transactional idempotency, workers, Docker Compose, and structured observability.
 
-## Objetivo
+## Purpose
 
-Simular o fluxo assíncrono de processamento de pedidos com serviços desacoplados, Clean Architecture, testabilidade e práticas de produção adaptadas para demo local (migrations automáticas, health checks, observabilidade).
+This repository is a **portfolio and demonstration project** that simulates asynchronous order processing with decoupled services. It showcases event-driven architecture, Clean Architecture boundaries, testability, and production-oriented practices adapted for local demo (automatic migrations, health checks, structured logging, and correlation IDs).
 
-## Arquitetura
+It is not a production-hardened deployment. Treat it as a reference implementation you can run locally with Docker Compose.
 
-Cada etapa publica um **evento de integração** no RabbitMQ. Consumidores reagem apenas ao contrato do evento, sem acoplamento direto entre serviços.
+## Architecture overview
+
+Each step in the order flow publishes an **integration event** to RabbitMQ. Consumers react only to event contracts — there is no direct service-to-service HTTP coupling.
 
 ```mermaid
 sequenceDiagram
-    participant Cliente
+    participant Client
     participant OrdersAPI
     participant Outbox
     participant RabbitMQ
@@ -20,9 +22,9 @@ sequenceDiagram
     participant InventoryWorker
     participant NotificationsWorker
 
-    Cliente->>OrdersAPI: POST /api/orders
-    OrdersAPI->>OrdersAPI: Salva pedido + outbox (transação)
-    OrdersAPI-->>Cliente: 201 Created
+    Client->>OrdersAPI: POST /api/orders
+    OrdersAPI->>OrdersAPI: Persist order + outbox (single transaction)
+    OrdersAPI-->>Client: 201 Created
     Outbox->>RabbitMQ: OrderCreatedEvent
 
     RabbitMQ->>PaymentsWorker: OrderCreatedEvent
@@ -42,45 +44,118 @@ sequenceDiagram
     OrdersAPI->>OrdersAPI: Status = Completed
 ```
 
-Documentação adicional: [docs/architecture.md](docs/architecture.md), [docs/messaging-flow.md](docs/messaging-flow.md), [docs/demo.md](docs/demo.md).
+See also: [docs/architecture.md](docs/architecture.md), [docs/messaging-flow.md](docs/messaging-flow.md), [docs/demo.md](docs/demo.md).
 
-## Stack
+## Runtime services
 
-.NET 10 · ASP.NET Core · RabbitMQ · MassTransit 8.3.4 · EF Core 10 · PostgreSQL · MediatR · FluentValidation · Serilog · xUnit · Docker Compose
+| Service | Role |
+|---------|------|
+| **Orders API** | HTTP entry point; owns order state; persists orders and outbox messages in one transaction; consumes downstream events to update status |
+| **Outbox dispatcher** | Background worker inside Orders API; publishes pending outbox messages to RabbitMQ |
+| **Payments Worker** | Simulates payment processing; consumes `OrderCreatedEvent`; publishes `PaymentApprovedEvent` or `PaymentRejectedEvent` |
+| **Inventory Worker** | Simulates stock reservation; consumes `OrderCreatedEvent` and `PaymentApprovedEvent`; publishes `StockReservedEvent` or `StockReservationFailedEvent` |
+| **Notifications Worker** | Simulates customer notification; consumes `StockReservedEvent`; publishes `NotificationSentEvent` |
+| **PostgreSQL** | Per-service persistence (orders, payments, inventory, notifications, idempotency records) |
+| **RabbitMQ** | Async message broker for integration events |
 
-### Runtime (.NET 10 vs .NET 8 LTS)
+## Messaging flow
 
-O repositório usa **.NET 10** de forma intencional para portfólio (imagens Docker `sdk:10.0` / `aspnet:10.0`). O código **não depende** de APIs exclusivas do .NET 10.
+1. Client sends `POST /api/orders` to the Orders API.
+2. Orders API saves the order and an outbox message in a **single database transaction**.
+3. `201 Created` means the order exists and the integration event is durably stored in the outbox.
+4. The outbox dispatcher publishes `OrderCreatedEvent` to RabbitMQ.
+5. Payments Worker consumes `OrderCreatedEvent` and publishes `PaymentApprovedEvent`.
+6. Inventory Worker reacts to order/payment events and publishes `StockReservedEvent`.
+7. Notifications Worker consumes `StockReservedEvent` and publishes `NotificationSentEvent`.
+8. Orders API consumes subsequent events and updates order status until `Completed` (or `Failed` on error paths).
 
-Para forks com suporte LTS de longo prazo, recomenda-se migrar para **.NET 8** — ver [ADR 0005](docs/decisions/0005-target-framework-net10.md).
+Full event sequence: [docs/messaging-flow.md](docs/messaging-flow.md).
 
-## Estrutura de pastas
+## Order lifecycle
+
+| Status | Meaning |
+|--------|---------|
+| `Pending` | Order was created and is waiting for asynchronous processing |
+| `PaymentApproved` | Payment was approved by the Payments Worker |
+| `StockReserved` | Stock was successfully reserved by the Inventory Worker |
+| `Completed` | Notification was sent; the order flow finished successfully |
+| `Failed` | Payment, stock, or business rule failure |
+
+Happy path: `Pending` → `PaymentApproved` → `StockReserved` → `Completed`.
+
+## Outbox Pattern
+
+Implemented in the **Orders** service only:
+
+- When an order is created, `OrderCreatedEvent` is written to the `outbox_messages` table in the **same transaction** as the order.
+- `OutboxDispatcherBackgroundService` polls pending messages and publishes them to RabbitMQ via MassTransit.
+- This guarantees the integration event is never lost if the API transaction commits.
+
+Configuration (Orders API): `Outbox__BatchSize`, `Outbox__PollIntervalSeconds`, `Outbox__MaxRetryCount`.
+
+## Consumer idempotency
+
+All MassTransit consumers use **transactional idempotency** via `IdempotentConsumerExecutor`:
+
+- Before processing, the consumer checks `(EventId, ConsumerName)` in `processed_messages`.
+- The idempotency record and business side effects run in the **same database transaction**.
+- Duplicate deliveries are skipped with an informational log.
+
+## Production-like decisions
+
+| Decision | Implementation |
+|----------|----------------|
+| Service decoupling | Integration events over RabbitMQ |
+| Message handling | MassTransit consumers |
+| Durable order creation | Order and outbox message persisted in a single transaction |
+| Async publication | Outbox dispatcher publishes pending messages |
+| Idempotent consumers | Transactional idempotency records |
+| Retry policy | MassTransit message retry (5 attempts, 2-second intervals) |
+| Local persistence | PostgreSQL database per service |
+| Observability | Serilog structured logging + `X-Correlation-Id` propagation |
+| Health checks | API and infrastructure readiness endpoints |
+| Local environment | Docker Compose |
+
+## Why RabbitMQ and MassTransit?
+
+- **RabbitMQ** provides reliable async messaging between independently deployable services.
+- **MassTransit 8.3.4** simplifies consumer wiring, message contracts, retry policies, endpoint conventions, and RabbitMQ integration.
+- MassTransit **8.x** is used intentionally so the repository remains open and runnable without commercial licensing. MassTransit 9 requires a license for production use — see [ADR 0004](docs/decisions/0004-use-masstransit-8-not-version-9.md).
+
+## Repository structure
 
 ```
 src/
-  BuildingBlocks/           # Contratos, mensageria, idempotência, outbox, observabilidade
+  BuildingBlocks/           # Contracts, messaging, idempotency, outbox, observability
   Services/
     Orders/                 # Api + Application + Domain + Infrastructure
     Payments/               # Worker + Application + Domain + Infrastructure
     Inventory/
-    Notifications/          # Worker (persistência de idempotência)
+    Notifications/          # Worker (idempotency persistence)
 tests/
-docker/                     # Dockerfiles por serviço + init PostgreSQL
+docker/                     # Dockerfiles per service + PostgreSQL init script
 docs/
-scripts/                    # Atalhos PowerShell para demo
 docker-compose.yml
 EventDriven.OrderProcessing.RabbitMQ.slnx
 ```
 
-## Como executar (Docker Compose)
+**Stack:** .NET 10 · ASP.NET Core · RabbitMQ · MassTransit 8.3.4 · EF Core 10 · PostgreSQL · MediatR · FluentValidation · Serilog · xUnit · Docker Compose · Testcontainers
 
-### Pré-requisitos
+### Runtime (.NET 10)
 
-- Docker Desktop ou Docker Engine + Compose v2
-- Portas: `8080`, `5432`, `5672`, `15672`
-- .NET 10 SDK apenas se for rodar/testar fora do Docker (`dotnet test`, `dotnet run`)
+This project intentionally targets **.NET 10** (`net10.0` in `Directory.Build.props`; Docker images use `sdk:10.0` / `aspnet:10.0`). The application code does **not** depend on .NET 10–exclusive APIs.
 
-### Comandos
+For long-term production forks, you may choose an LTS version (for example .NET 8) according to your support policy — see [ADR 0005](docs/decisions/0005-target-framework-net10.md).
+
+## Running with Docker Compose
+
+### Prerequisites
+
+- Docker Desktop or Docker Engine + Compose v2
+- Free ports: `8080`, `5432`, `5672`, `15672`
+- .NET 10 SDK only if running or testing outside Docker (`dotnet test`, `dotnet run`)
+
+### Commands
 
 ```bash
 docker compose down -v
@@ -88,52 +163,48 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Atalho PowerShell (na raiz):
+## Services and ports
 
-```powershell
-.\scripts\docker-up.ps1 -Rebuild
-.\scripts\demo-create-order.ps1
-.\scripts\docker-down.ps1 -Volumes
-```
-
-### Serviços e portas
-
-| Serviço | Descrição | URL / Porta |
-|---------|-----------|-------------|
-| orders-api | API HTTP | http://localhost:8080 |
-| Swagger | UI da API (Development) | http://localhost:8080/swagger |
+| Service | Description | URL / Port |
+|---------|-------------|------------|
+| orders-api | HTTP API | http://localhost:8080 |
+| Swagger | API UI (Development) | http://localhost:8080/swagger |
 | Health | Health checks | http://localhost:8080/health |
-| RabbitMQ Management | Console AMQP | http://localhost:15672 (`guest`/`guest`) |
-| PostgreSQL | Bancos por serviço | `localhost:5432` (`postgres`/`postgres`) |
+| RabbitMQ Management | AMQP management UI | http://localhost:15672 (`guest` / `guest`) |
+| PostgreSQL | Per-service databases | `localhost:5432` (`postgres` / `postgres`) |
 
-### Bancos criados no PostgreSQL
+Workers (`payments-worker`, `inventory-worker`, `notifications-worker`) have no exposed HTTP ports. They depend on PostgreSQL and RabbitMQ health checks only.
 
-| Database | Serviço |
+> **Demo credentials only.** `guest`/`guest` and `postgres`/`postgres` are for local development. Do not use them in production.
+
+## Databases
+
+| Database | Service |
 |----------|---------|
 | `orders_db` | Orders API |
 | `payments_db` | Payments Worker |
 | `inventory_db` | Inventory Worker |
 | `notifications_db` | Notifications Worker |
 
-Script de init: `docker/postgres/init-databases.sql` (executado apenas com volume vazio).
+Init script: `docker/postgres/init-databases.sql` (runs only on first startup with an empty volume).
 
-### Migrations
+## Migrations
 
-Cada serviço aplica **EF Core migrations no startup** (adequado para demo local):
+Each service applies **EF Core migrations on startup** (appropriate for local demo):
 
 - Orders API → `MigrateOrdersDatabaseAsync`
 - Payments Worker → `MigratePaymentsDatabaseAsync`
-- Inventory Worker → `MigrateAndSeedInventoryAsync` (inclui produtos `PROD-001`…)
+- Inventory Worker → `MigrateAndSeedInventoryAsync` (seeds `PROD-001`, `PROD-002`, `PROD-003`)
 - Notifications Worker → `MigrateNotificationsDatabaseAsync`
 
-## Testar o fluxo manualmente
+## Manual flow validation
 
-1. Suba o ambiente (`docker compose up -d --build`).
-2. Aguarde `orders-api` ficar **healthy** (`docker compose ps`).
-3. Workers sobem em paralelo (dependem só de Postgres + RabbitMQ); mensagens aguardam na fila se necessário.
-4. Crie um pedido (exemplo abaixo) e consulte até `status: Completed`.
+1. Start the environment: `docker compose up -d --build`.
+2. Wait until `orders-api` is **healthy** (`docker compose ps`).
+3. Workers start in parallel (they depend only on Postgres + RabbitMQ); messages queue until consumers connect.
+4. Create an order (example below) and poll until `status: Completed`.
 
-Guia detalhado: **[docs/demo.md](docs/demo.md)**
+Detailed walkthrough: **[docs/demo.md](docs/demo.md)**
 
 ### POST /api/orders
 
@@ -154,64 +225,57 @@ curl -s -X POST http://localhost:8080/api/orders \
 curl -s http://localhost:8080/api/orders/{ORDER_ID}
 ```
 
-### GET /api/orders (paginado)
+### GET /api/orders (paginated)
 
 ```bash
 curl -s "http://localhost:8080/api/orders?page=1&pageSize=10"
 ```
 
-## Status do pedido
-
-| Status | Significado |
-|--------|-------------|
-| `Pending` | Pedido criado; aguardando processamento |
-| `PaymentApproved` | Pagamento aprovado |
-| `StockReserved` | Estoque reservado |
-| `Completed` | Notificação enviada; fluxo concluído |
-| `Failed` | Falha em pagamento, estoque ou regra de negócio |
-
-## Garantias implementadas
-
-| Recurso | Onde |
-|---------|------|
-| **Outbox** | Orders — grava evento na mesma transação do pedido; dispatcher publica no RabbitMQ |
-| **Idempotência transacional** | Todos os consumers — `TryStartProcessingAsync` + mesma transação da regra de negócio |
-| **CorrelationId** | Header `X-Correlation-Id` na API; propagado nos eventos e logs Serilog |
-| **Retry MassTransit** | 3 tentativas com intervalo de 2s |
-| **Logs estruturados** | Serilog com `Application` e `CorrelationId` |
-
-## Desenvolvimento local (sem Docker)
+Optional correlation ID:
 
 ```bash
-# Infra
+curl -s -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -H "X-Correlation-Id: demo-123" \
+  -d '{ "customerId": "customer-1", "items": [{ "productId": "PROD-001", "quantity": 1, "unitPrice": 99.90 }] }'
+```
+
+## Local development without Docker
+
+```bash
+# Infrastructure only
 docker compose up -d postgres rabbitmq
 
-# Migrations aplicam ao iniciar cada projeto
+# Migrations apply on startup for each project
 dotnet run --project src/Services/Orders/Orders.Api
 dotnet run --project src/Services/Payments/Payments.Worker
 dotnet run --project src/Services/Inventory/Inventory.Worker
 dotnet run --project src/Services/Notifications/Notifications.Worker
 ```
 
-Connection strings padrão em `appsettings.json` apontam para `localhost`.
+Default connection strings in `appsettings.json` point to `localhost`.
 
-## Testes
+## Build and tests
 
 ```bash
+dotnet restore
+dotnet build
 dotnet test
 ```
 
-- Unitários: domínio, validações (Orders, Payments, Inventory)
-- Integração: POST `/api/orders` com banco em memória
-- **E2E (Testcontainers)**: fluxo completo até `Completed` — ver [docs/e2e-tests.md](docs/e2e-tests.md)
+| Layer | Coverage |
+|-------|----------|
+| Unit tests | Domain rules and validations (Orders, Payments, Inventory) |
+| Integration tests | `POST /api/orders` with in-memory database |
+| E2E tests (Testcontainers) | Full flow until `Completed` — see [docs/e2e-tests.md](docs/e2e-tests.md) |
 
 ```bash
 dotnet test tests/Orders.E2ETests/Orders.E2ETests.csproj
 ```
 
-Requer Docker em execução (PostgreSQL + RabbitMQ via Testcontainers, sem mock).
+**E2E tests require Docker to be running** (PostgreSQL + RabbitMQ via Testcontainers; no broker or database mocks).
 
-## Logs e troubleshooting
+## Logs and troubleshooting
 
 ```bash
 docker compose logs -f orders-api
@@ -221,45 +285,66 @@ docker compose logs -f notifications-worker
 docker compose logs -f rabbitmq
 ```
 
-Parar e remover volumes:
+Stop and remove volumes:
 
 ```bash
 docker compose down -v
 ```
 
-## Publicar no GitHub
+| Symptom | Likely cause | Action |
+|---------|--------------|--------|
+| `orders-api` unhealthy | RabbitMQ still starting, migration failure | `docker compose logs orders-api` |
+| Order stuck in `Pending` | Outbox not dispatched or workers stopped | Check outbox logs in `orders-api` and `payments-worker` logs |
+| Order `Failed` | Payment rejected or insufficient stock | `GET /api/orders/{id}` → `failureReason`; use seeded SKUs |
+| Missing database | Old Postgres volume without all DBs | `docker compose down -v` and restart |
+| Port conflict | Another Postgres/RabbitMQ on host | Stop conflicting service or change Compose ports |
 
-Antes do primeiro push, evite versionar artefatos de build:
+## Conscious trade-offs
 
-```bash
-git init
-git add .
-# Se bin/obj já estiverem rastreados:
-git rm -r --cached "**/bin" "**/obj" 2>/dev/null || true
-git commit -m "Initial commit"
-```
+### Known limitations
 
-O `.gitignore` já cobre `bin/`, `obj/`, `.vs/`, `.vscode/` e logs.
+| Limitation | Reason |
+|------------|--------|
+| Outbox only in Orders service | Keeps the demo focused while demonstrating the pattern clearly |
+| Payments and Inventory publish directly to RabbitMQ | Simpler implementation for portfolio scope |
+| No explicit DLQ yet | Can be added as a future production-hardening improvement |
+| No saga / state machine | The goal is to showcase event-driven choreography first |
+| No OpenTelemetry yet | Serilog + CorrelationId are sufficient for current scope |
+| Docker Compose only | Simplifies and makes local execution accessible |
 
-## Decisões arquiteturais
+### Decision costs and benefits
 
-- [ADR 0001 — Event-driven](docs/decisions/0001-use-event-driven-architecture.md)
-- [ADR 0002 — RabbitMQ + MassTransit](docs/decisions/0002-use-rabbitmq-with-masstransit.md)
-- [ADR 0003 — Workers](docs/decisions/0003-use-workers-for-async-processing.md)
-- [ADR 0004 — MassTransit 8 (não v9)](docs/decisions/0004-use-masstransit-8-not-version-9.md)
-- [ADR 0005 — Target .NET 10](docs/decisions/0005-target-framework-net10.md)
+| Decision | Benefit | Cost |
+|----------|---------|------|
+| Event-driven choreography | Flexible decoupling between services | Harder end-to-end tracing |
+| Outbox Pattern | Durable event per order creation | Eventual consistency between DB and broker |
+| MassTransit | Simplified RabbitMQ integration | Framework-specific conventions |
+| Database per service | Better service ownership | More local infrastructure |
+| Automatic migrations on startup | Easy demo bootstrap | Not suitable for all production deployment models |
 
-## Limitações conhecidas
+## Future improvements
 
-- MassTransit **8.3.4** — v9 exige licença; ver [ADR 0004](docs/decisions/0004-use-masstransit-8-not-version-9.md)
-- Outbox apenas no serviço **Orders**; Payments/Inventory publicam direto no broker
-- Publicação em workers não é transacional com o banco (exceto marcação idempotente)
-- Sem DLQ explícita / saga / OpenTelemetry
-- Ambiente Docker é para **demo**; não representa hardening de produção
+- Outbox Pattern in Payments and Inventory services
+- Explicit dead-letter queue (DLQ) and poison-message handling
+- OpenTelemetry traces and metrics
+- Kubernetes manifests or cloud deployment examples
+- Optional migration to an LTS .NET version for long-term production forks
 
-## Melhorias futuras
+## Documentation
 
-- Outbox nos demais serviços
-- Migração opcional para .NET 8 LTS (forks de produção)
-- Testes E2E com Testcontainers
-- DLQ e observabilidade avançada
+- [Architecture](docs/architecture.md)
+- [Messaging flow](docs/messaging-flow.md)
+- [Demo walkthrough](docs/demo.md)
+- [E2E tests](docs/e2e-tests.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- Architecture Decision Records:
+  - [ADR 0001 — Event-driven architecture](docs/decisions/0001-use-event-driven-architecture.md)
+  - [ADR 0002 — RabbitMQ + MassTransit](docs/decisions/0002-use-rabbitmq-with-masstransit.md)
+  - [ADR 0003 — Workers for async processing](docs/decisions/0003-use-workers-for-async-processing.md)
+  - [ADR 0004 — MassTransit 8 (not v9)](docs/decisions/0004-use-masstransit-8-not-version-9.md)
+  - [ADR 0005 — Target .NET 10](docs/decisions/0005-target-framework-net10.md)
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

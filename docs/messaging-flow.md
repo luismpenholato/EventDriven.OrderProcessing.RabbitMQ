@@ -1,22 +1,35 @@
-# Fluxo de mensageria
+# Messaging flow
 
-## Sequência de eventos
+## Event sequence
 
-1. `OrderCreatedEvent` → Payments, Inventory (registro de itens)
-2. `PaymentApprovedEvent` ou `PaymentRejectedEvent` → Orders, Inventory
-3. `StockReservedEvent` ou `StockReservationFailedEvent` → Orders, Notifications
-4. `NotificationSentEvent` → Orders (marca `Completed`)
+1. `OrderCreatedEvent` → Payments Worker, Inventory Worker (item registration)
+2. `PaymentApprovedEvent` or `PaymentRejectedEvent` → Orders API, Inventory Worker
+3. `StockReservedEvent` or `StockReservationFailedEvent` → Orders API, Notifications Worker
+4. `NotificationSentEvent` → Orders API (marks order `Completed`)
 
-## Idempotência
+## Integration events
 
-Cada consumer verifica `EventId` + `ConsumerName` antes de processar. Duplicatas são ignoradas com log informativo.
+| Event | Publisher | Consumers |
+|-------|-----------|-----------|
+| `OrderCreatedEvent` | Orders API (via outbox) | Payments Worker, Inventory Worker |
+| `PaymentApprovedEvent` | Payments Worker | Orders API, Inventory Worker |
+| `PaymentRejectedEvent` | Payments Worker | Orders API |
+| `StockReservedEvent` | Inventory Worker | Orders API, Notifications Worker |
+| `StockReservationFailedEvent` | Inventory Worker | Orders API |
+| `NotificationSentEvent` | Notifications Worker | Orders API |
+
+MassTransit uses kebab-case endpoint name formatting. Queue and exchange names are derived from consumer types at runtime.
+
+## Idempotency
+
+Each consumer checks `EventId` + `ConsumerName` before processing. Duplicates are skipped with an informational log.
 
 ## Retry
 
-MassTransit aplica retry com 3 tentativas em intervalos de 2 segundos.
+MassTransit applies message retry with **5 attempts** at **2-second intervals** (`UseMessageRetry` in `BuildingBlocks.Messaging`).
 
-## Falhas
+## Failure paths
 
-- Pagamento rejeitado → pedido `Failed`
-- Estoque insuficiente → `StockReservationFailedEvent` → pedido `Failed`
-- Transição inválida de status → exceção de domínio e retry controlado
+- Payment rejected → order status `Failed`
+- Insufficient stock → `StockReservationFailedEvent` → order status `Failed`
+- Invalid status transition → domain exception and controlled retry

@@ -1,42 +1,42 @@
 # Demo — EventDriven.OrderProcessing.RabbitMQ
 
-Guia passo a passo para subir o ambiente completo via Docker Compose e validar o fluxo até o pedido ficar **Completed**.
+Step-by-step guide to start the full environment via Docker Compose and validate the flow until the order reaches **Completed**.
 
-## Pré-requisitos
+## Prerequisites
 
-- Docker Desktop (ou Docker Engine + Compose v2)
-- Portas livres: `5432`, `5672`, `15672`, `8080`
-- **Não** é obrigatório ter .NET SDK instalado para rodar via Docker (apenas para `dotnet test` local)
+- Docker Desktop (or Docker Engine + Compose v2)
+- Free ports: `5432`, `5672`, `15672`, `8080`
+- .NET SDK is **not** required to run via Docker (only for `dotnet test` locally)
 
-## 1. Subir o ambiente
+## 1. Start the environment
 
-Na raiz do repositório:
+From the repository root:
 
 ```bash
 docker compose down -v
 docker compose up -d --build
 ```
 
-Aguarde a infraestrutura e os serviços ficarem prontos (1–2 min na primeira vez: pull de imagens, migrations, seed de produtos):
+Wait for infrastructure and services to become ready (1–2 minutes on first run: image pull, migrations, product seed):
 
 ```bash
 docker compose ps
 ```
 
-Esperado:
+Expected:
 
-| Serviço | Status |
+| Service | Status |
 |---------|--------|
 | `postgres` | healthy |
 | `rabbitmq` | healthy |
 | `orders-api` | healthy |
 | `payments-worker`, `inventory-worker`, `notifications-worker` | running |
 
-Os **workers não dependem da Orders API** no Compose — apenas de Postgres e RabbitMQ. Mensagens ficam na fila até os consumers estarem conectados.
+Workers do **not** depend on the Orders API in Compose — only on Postgres and RabbitMQ. Messages remain queued until consumers connect.
 
-**Antes de criar o pedido**, confirme que `orders-api` está `healthy` (migrations aplicadas e bus conectado).
+**Before creating an order**, confirm `orders-api` is `healthy` (migrations applied and bus connected).
 
-## 2. Acompanhar logs
+## 2. Follow logs
 
 ```bash
 docker compose logs -f orders-api
@@ -45,13 +45,7 @@ docker compose logs -f inventory-worker
 docker compose logs -f notifications-worker
 ```
 
-Atalho PowerShell:
-
-```powershell
-.\scripts\demo-create-order.ps1
-```
-
-## 3. Criar um pedido
+## 3. Create an order
 
 ### PowerShell
 
@@ -83,11 +77,11 @@ curl -s -X POST http://localhost:8080/api/orders \
   }'
 ```
 
-Produtos no seed do Inventory: `PROD-001`, `PROD-002`, `PROD-003`.
+Seeded products in Inventory: `PROD-001`, `PROD-002`, `PROD-003`.
 
-## 4. Validar status Completed
+## 4. Validate Completed status
 
-### PowerShell (loop)
+### PowerShell (poll loop)
 
 ```powershell
 do {
@@ -97,24 +91,24 @@ do {
 } while ($order.status -notin @("Completed", "Failed"))
 ```
 
-### curl (consulta manual)
+### curl (manual check)
 
 ```bash
 curl -s http://localhost:8080/api/orders/{ORDER_ID}
 ```
 
-Fluxo feliz: `Pending` → `PaymentApproved` → `StockReserved` → `Completed`
+Happy path: `Pending` → `PaymentApproved` → `StockReserved` → `Completed`
 
-Critério de sucesso: campo `status` igual a `Completed` no JSON da API.
+Success criterion: `status` field equals `Completed` in the API JSON response.
 
 ## 5. RabbitMQ Management
 
 - URL: http://localhost:15672
-- Credenciais: `guest` / `guest`
+- Credentials: `guest` / `guest`
 
-Confira exchanges/filas e o consumo das mensagens durante o fluxo.
+Inspect exchanges, queues, and message consumption during the flow.
 
-## 6. Correlation Id (opcional)
+## 6. Correlation Id (optional)
 
 ```powershell
 $headers = @{ "X-Correlation-Id" = "demo-$(New-Guid)" }
@@ -122,15 +116,15 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/orders" `
   -ContentType "application/json" -Headers $headers -Body $body
 ```
 
-O header `X-Correlation-Id` deve ser ecoado na resposta e aparecer nos logs (`[CorrelationId]`).
+The `X-Correlation-Id` header should be echoed in the response and appear in logs (`[CorrelationId]`).
 
-## 7. Parar e limpar
+## 7. Stop and clean up
 
 ```bash
 docker compose down
 ```
 
-Reset completo (bancos recriados na próxima subida):
+Full reset (databases recreated on next startup):
 
 ```bash
 docker compose down -v
@@ -138,19 +132,19 @@ docker compose down -v
 
 ## Troubleshooting
 
-| Sintoma | Causa provável | Ação |
-|--------|----------------|------|
-| `orders-api` unhealthy / restarting | RabbitMQ ainda subindo, falha de licença MT9, migrations | `docker compose logs orders-api` — deve usar MassTransit **8.3.4** |
-| Worker reiniciando com erro `Microsoft.AspNetCore.App` | Imagem Docker errada | Workers usam imagem `aspnet:10.0`, não `runtime` |
-| Pedido em `Pending` | Outbox não despachou ou workers parados | Logs `orders-api` (outbox published?) e `payments-worker` |
-| `Failed` | Pagamento rejeitado ou estoque | GET do pedido → `failureReason`; use SKU do seed |
-| Banco inexistente | Volume Postgres antigo sem `notifications_db` | `docker compose down -v` e subir de novo |
-| Porta em uso | Outro Postgres/Rabbit na máquina | Pare o serviço conflitante ou altere portas no Compose |
+| Symptom | Likely cause | Action |
+|---------|--------------|--------|
+| `orders-api` unhealthy / restarting | RabbitMQ still starting, MassTransit 9 license error, migration failure | `docker compose logs orders-api` — must use MassTransit **8.3.4** |
+| Worker restarting with `Microsoft.AspNetCore.App` error | Wrong Docker base image | Workers use `aspnet:10.0`, not `runtime` |
+| Order stuck in `Pending` | Outbox not dispatched or workers stopped | Check `orders-api` (outbox published?) and `payments-worker` logs |
+| Order `Failed` | Payment rejected or stock issue | GET order → `failureReason`; use seeded SKU |
+| Database missing | Old Postgres volume without `notifications_db` | `docker compose down -v` and restart |
+| Port in use | Another Postgres/RabbitMQ on host | Stop conflicting service or change Compose ports |
 
-## O que validar nos logs
+## What to validate in logs
 
-1. **orders-api**: pedido persistido; `Outbox message ... published`
-2. **payments-worker**: `OrderCreatedEvent` consumido; `PaymentApprovedEvent` publicado
-3. **inventory-worker**: registro + reserva de estoque
+1. **orders-api**: order persisted; `Outbox message ... published`
+2. **payments-worker**: `OrderCreatedEvent` consumed; `PaymentApprovedEvent` published
+3. **inventory-worker**: item registration + stock reservation
 4. **notifications-worker**: `StockReservedEvent` → `NotificationSentEvent`
-5. **orders-api**: consumers de retorno; status final `Completed`
+5. **orders-api**: return-path consumers; final status `Completed`

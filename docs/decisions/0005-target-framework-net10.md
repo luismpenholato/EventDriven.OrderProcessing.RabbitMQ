@@ -2,30 +2,30 @@
 
 ## Status
 
-Aceito (com ressalva para forks em produção)
+Accepted (with guidance for production forks)
 
-## Contexto
+## Context
 
-O repositório usa `net10.0` em `Directory.Build.props`, imagens Docker `mcr.microsoft.com/dotnet/sdk:10.0` / `aspnet:10.0` e pacotes Microsoft/EF Core na linha **10.0.x**.
+The repository uses `net10.0` in `Directory.Build.props`, Docker images `mcr.microsoft.com/dotnet/sdk:10.0` / `aspnet:10.0`, and Microsoft/EF Core packages on the **10.0.x** line.
 
-Não há uso identificado de APIs exclusivas do C# 13 ou runtime .NET 10 no domínio e na aplicação. O código é compatível em espírito com .NET 8.
+No exclusive C# 13 or .NET 10 runtime APIs were identified in domain and application code. The codebase is structurally compatible with earlier LTS versions such as .NET 8.
 
-## Decisão
+## Decision
 
-Manter **.NET 10** neste repositório como escolha de **portfólio** (stack atual e imagens Docker oficiais já publicadas).
+Keep **.NET 10** in this repository as an intentional **portfolio choice** (current stack and officially published Docker images).
 
-## Recomendação para forks / produção
+## Guidance for forks / production
 
-Para bases reutilizáveis com suporte LTS de longo prazo, **recomenda-se migrar para .NET 8**:
+For long-term reusable bases with extended LTS support, you **may choose to migrate to .NET 8** (or another LTS version) according to your organization's support policy:
 
-- Alterar `Directory.Build.props` para `net8.0`
-- Alinhar pacotes NuGet para versões 8.0.x (EF Core, ASP.NET Core, Extensions)
-- Atualizar Dockerfiles para `sdk:8.0` e `aspnet:8.0`
+- Change `Directory.Build.props` to `net8.0`
+- Align NuGet packages to 8.0.x (EF Core, ASP.NET Core, Extensions)
+- Update Dockerfiles to `sdk:8.0` and `aspnet:8.0`
 
-Essa migração não foi aplicada aqui para evitar churn desnecessário enquanto o foco do repositório é demonstrar arquitetura event-driven, não a versão do runtime.
+That migration is not applied here to avoid unnecessary churn while the repository focus is demonstrating event-driven architecture, not runtime version selection.
 
-## Consequências
+## Consequences
 
-- Quem clona o projeto precisa do **.NET 10 SDK** para `dotnet run` / `dotnet test` fora do Docker
-- Docker Compose não exige SDK local (build dentro da imagem)
-- Forks corporativos devem avaliar LTS (.NET 8) antes de adoção em produção
+- Cloning the project requires the **.NET 10 SDK** for `dotnet run` / `dotnet test` outside Docker
+- Docker Compose does not require a local SDK (build happens inside images)
+- Corporate forks should evaluate LTS (.NET 8) before production adoption

@@ -1,32 +1,41 @@
-# Arquitetura
+# Architecture
 
-## Visão geral
+## Overview
 
-O sistema demonstra processamento de pedidos com **comunicação assíncrona** entre serviços autônomos. Cada bounded context possui banco próprio e evolui de forma independente.
+The system demonstrates order processing with **asynchronous communication** between autonomous services. Each bounded context has its own database and can evolve independently.
 
-## Camadas (Clean Architecture)
+There is no distributed transaction. Consistency is **eventual**: each service updates its local state and publishes the next integration event.
 
-| Camada | Responsabilidade |
-|--------|------------------|
-| **Domain** | Regras de negócio, entidades, invariantes |
-| **Application** | Casos de uso (MediatR), validações, portas |
-| **Infrastructure** | EF Core, MassTransit, persistência |
-| **Api / Worker** | Entrada HTTP ou hospedagem do consumer |
+## Layers (Clean Architecture)
+
+| Layer | Responsibility |
+|-------|----------------|
+| **Domain** | Business rules, entities, invariants |
+| **Application** | Use cases (MediatR), validations, ports |
+| **Infrastructure** | EF Core, MassTransit, persistence |
+| **Api / Worker** | HTTP entry point or consumer host |
 
 ## Building Blocks
 
-- `BuildingBlocks.Contracts`: eventos de integração compartilhados
-- `BuildingBlocks.Messaging`: configuração MassTransit + RabbitMQ
-- `BuildingBlocks.Domain`: abstrações DDD reutilizáveis
-- `BuildingBlocks.Observability`: Serilog e health checks
+| Project | Purpose |
+|---------|---------|
+| `BuildingBlocks.Contracts` | Shared integration event contracts |
+| `BuildingBlocks.Messaging` | MassTransit + RabbitMQ configuration, outbox, idempotency |
+| `BuildingBlocks.Domain` | Reusable DDD abstractions |
+| `BuildingBlocks.Observability` | Serilog, health checks, correlation ID |
 
-## Serviços
+## Services
 
-1. **Orders.Api** — criação e consulta de pedidos; consome eventos de retorno para atualizar status
-2. **Payments.Worker** — processa pagamento após `OrderCreatedEvent`
-3. **Inventory.Worker** — registra itens e reserva estoque após pagamento
-4. **Notifications.Worker** — envia notificação após reserva de estoque
+1. **Orders.Api** — creates and queries orders; consumes return-path events to update status
+2. **Payments.Worker** — processes payment after `OrderCreatedEvent`
+3. **Inventory.Worker** — registers order items and reserves stock after payment approval
+4. **Notifications.Worker** — sends notification after stock reservation
 
-## Consistência
+## Correlation ID
 
-Não há transação distribuída. A consistência é **eventual**: cada serviço atualiza seu estado e publica o próximo evento.
+The Orders API accepts an optional `X-Correlation-Id` header. The value is propagated to integration events and structured logs (Serilog), enabling request tracing across services.
+
+## Consistency model
+
+- **Orders API:** order + outbox message in a single transaction (Outbox Pattern).
+- **Workers:** idempotency record + business changes in a single transaction; event publication to RabbitMQ is not transactional with the database (except for the idempotency marker).

@@ -1,68 +1,68 @@
-# Testes E2E
+# E2E tests
 
-Dois modos para validar o fluxo completo até `Completed`:
+Two modes to validate the full flow until `Completed`:
 
-| Modo | Quando usar | Docker necessário |
-|------|-------------|-------------------|
-| **Testcontainers** (padrão) | CI/local automatizado | Sim (engine) |
-| **Docker Compose** (opcional) | Validar a stack real do `docker-compose.yml` | Sim (compose em execução) |
+| Mode | When to use | Docker required |
+|------|-------------|-----------------|
+| **Testcontainers** (default) | Automated CI/local runs | Yes (engine) |
+| **Docker Compose** (optional) | Validate the real `docker-compose.yml` stack | Yes (Compose running) |
 
-## Fluxo validado
+## Validated flow
 
-`POST /api/orders` → `OrderCreatedEvent` → Payments → `PaymentApprovedEvent` → Inventory → `StockReservedEvent` → Notifications → `NotificationSentEvent` → pedido `Completed`.
+`POST /api/orders` → `OrderCreatedEvent` → Payments → `PaymentApprovedEvent` → Inventory → `StockReservedEvent` → Notifications → `NotificationSentEvent` → order `Completed`.
 
-Sem mock de RabbitMQ ou banco.
+No RabbitMQ or database mocks.
 
 ---
 
-## 1. Testcontainers (recomendado)
+## 1. Testcontainers (recommended)
 
-Projeto: `tests/Orders.E2ETests`
+Project: `tests/Orders.E2ETests`
 
-Sobe containers PostgreSQL e RabbitMQ, inicia workers in-process e a Orders API via `WebApplicationFactory`, aplica migrations e executa o fluxo.
+Starts PostgreSQL and RabbitMQ containers, launches workers in-process and the Orders API via `WebApplicationFactory`, applies migrations, and runs the flow.
 
-### Pré-requisitos
+### Prerequisites
 
-- Docker Desktop / Engine em execução
+- Docker Desktop / Engine running
 - .NET 10 SDK
 
-### Comando
+### Command
 
 ```bash
 dotnet test tests/Orders.E2ETests/Orders.E2ETests.csproj
 ```
 
-Ou na solution:
+Or from the solution:
 
 ```bash
 dotnet test --filter "FullyQualifiedName~Orders.E2ETests.OrderProcessingE2ETests"
 ```
 
-### Tempo
+### Duration
 
-A primeira execução pode levar **2–3 minutos** (pull de imagens + startup). Execuções seguintes costumam ser mais rápidas.
+The first run may take **2–3 minutes** (image pull + startup). Subsequent runs are usually faster.
 
 ### Timeout
 
-O teste aguarda status `Completed` por até **120 segundos** (poll a cada 1s). Outbox configurada com `PollIntervalSeconds: 1` no ambiente E2E.
+The test waits for `Completed` status for up to **120 seconds** (poll every 1s). Outbox is configured with `PollIntervalSeconds: 1` in the E2E environment.
 
-### RabbitMQ no Testcontainers
+### RabbitMQ in Testcontainers
 
-O container usa usuário/senha `e2e`/`e2e` (não `guest`/`guest`). No RabbitMQ 3.13, conexões via porta mapeada do host com `guest` costumam falhar com `ACCESS_REFUSED`.
+The container uses username/password `e2e`/`e2e` (not `guest`/`guest`). On RabbitMQ 3.13, host-mapped connections with `guest` often fail with `ACCESS_REFUSED`.
 
 ---
 
-## 2. Docker Compose (opcional)
+## 2. Docker Compose (optional)
 
-Teste: `DockerComposeOrderProcessingE2ETests`
+Test: `DockerComposeOrderProcessingE2ETests`
 
-Não sobe infraestrutura — assume que você já executou:
+Does not start infrastructure — assumes you already ran:
 
 ```bash
 docker compose up -d --build
 ```
 
-### Comando
+### Command
 
 **PowerShell:**
 
@@ -78,16 +78,16 @@ export RUN_DOCKER_E2E=true
 dotnet test tests/Orders.E2ETests/Orders.E2ETests.csproj --filter "FullyQualifiedName~DockerComposeOrderProcessingE2ETests"
 ```
 
-Sem `RUN_DOCKER_E2E=true`, o teste é **ignorado** (não falha).
+Without `RUN_DOCKER_E2E=true`, the test is **skipped** (does not fail).
 
 ---
 
 ## Troubleshooting
 
-| Problema | Ação |
-|----------|------|
-| Testcontainers não inicia | Verifique `docker ps` e permissões do Docker |
-| Timeout em `Completed` | Verifique credenciais RabbitMQ e logs dos workers; em falha, o teste inclui diagnóstico da outbox |
-| `ACCESS_REFUSED` no RabbitMQ | No E2E Testcontainers use `e2e`/`e2e`; `guest` não funciona via porta mapeada no 3.13 |
-| Docker E2E falha imediatamente | `curl http://localhost:8080/health` — suba o Compose |
-| `PROD-001` não encontrado | Inventory seed não rodou — ver logs `inventory-worker` |
+| Problem | Action |
+|---------|--------|
+| Testcontainers fails to start | Check `docker ps` and Docker permissions |
+| Timeout waiting for `Completed` | Verify RabbitMQ credentials and worker logs; on failure, the test includes outbox diagnostics |
+| `ACCESS_REFUSED` on RabbitMQ | In Testcontainers E2E use `e2e`/`e2e`; `guest` does not work via mapped port on 3.13 |
+| Docker E2E fails immediately | `curl http://localhost:8080/health` — start Compose first |
+| `PROD-001` not found | Inventory seed did not run — check `inventory-worker` logs |
