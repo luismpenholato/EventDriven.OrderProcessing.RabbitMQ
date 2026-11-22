@@ -2,7 +2,11 @@
 
 Follow an order from creation through payment, inventory reservation and notification using asynchronous integration events.
 
+**Study / portfolio reference** — not a production order platform.
+
 **Stack:** .NET 10 · RabbitMQ / MassTransit · PostgreSQL / EF Core · Docker Compose · xUnit / Testcontainers.
+
+Related references: [Microservices.Ecommerce](https://github.com/luismpenholato/Microservices.Ecommerce) · [EventStreaming.Analytics.Kafka](https://github.com/luismpenholato/EventStreaming.Analytics.Kafka)
 
 [Quick start](#running-with-docker-compose) · [Architecture](#architecture-overview) · [Try the flow](#manual-flow-validation) · [Tests](#build-and-tests) · [Limitations](#known-limitations)
 
