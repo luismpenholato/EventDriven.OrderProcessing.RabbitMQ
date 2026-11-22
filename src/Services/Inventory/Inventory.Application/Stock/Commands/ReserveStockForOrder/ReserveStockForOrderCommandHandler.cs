@@ -34,6 +34,7 @@ public sealed class ReserveStockForOrderCommandHandler(
                 var product = await productRepository.GetBySkuAsync(item.ProductId, cancellationToken);
                 if (product is null)
                 {
+                    await CompensateReservationsAsync(reserved, cancellationToken);
                     return new ReserveStockForOrderResult(
                         ReserveStockOutcome.Failed,
                         request.OrderId,
@@ -58,10 +59,26 @@ public sealed class ReserveStockForOrderCommandHandler(
         }
         catch (DomainException ex)
         {
+            await CompensateReservationsAsync(reserved, cancellationToken);
             return new ReserveStockForOrderResult(
                 ReserveStockOutcome.Failed,
                 request.OrderId,
                 FailureReason: ex.Message);
+        }
+    }
+
+    private async Task CompensateReservationsAsync(
+        IReadOnlyList<(string ProductId, int Quantity)> reserved,
+        CancellationToken cancellationToken)
+    {
+        foreach (var item in reserved)
+        {
+            var product = await productRepository.GetBySkuAsync(item.ProductId, cancellationToken);
+            if (product is null)
+                continue;
+
+            product.Release(item.Quantity);
+            await productRepository.UpdateAsync(product, cancellationToken);
         }
     }
 
