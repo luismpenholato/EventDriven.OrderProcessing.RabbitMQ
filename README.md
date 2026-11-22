@@ -1,20 +1,41 @@
 # EventDriven.OrderProcessing.RabbitMQ
 
+[![CI](https://github.com/luismpenholato/EventDriven.OrderProcessing.RabbitMQ/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/luismpenholato/EventDriven.OrderProcessing.RabbitMQ/actions/workflows/ci.yml)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-luismpenholato-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/luismpenholato)
+
 Follow an order from creation through payment, inventory reservation and notification using asynchronous integration events.
 
 **Study / portfolio reference** — not a production order platform.
 
 **Stack:** .NET 10 · RabbitMQ / MassTransit · PostgreSQL / EF Core · Docker Compose · xUnit / Testcontainers.
 
-Related references: [Microservices.Ecommerce](https://github.com/luismpenholato/Microservices.Ecommerce) · [EventStreaming.Analytics.Kafka](https://github.com/luismpenholato/EventStreaming.Analytics.Kafka)
-
-[Quick start](#running-with-docker-compose) · [Architecture](#architecture-overview) · [Try the flow](#manual-flow-validation) · [Tests](#build-and-tests) · [Limitations](#known-limitations)
+[Quick start](#running-with-docker-compose) · [What you'll learn](#what-youll-learn) · [Portfolio series](#portfolio-series) · [Architecture](#architecture-overview) · [Try the flow](#manual-flow-validation) · [Tests](#build-and-tests)
 
 ## Purpose
 
 This repository is a **portfolio and demonstration project** that simulates asynchronous order processing with decoupled services. It showcases event-driven architecture, Clean Architecture boundaries, testability, and production-oriented practices adapted for local demo (automatic migrations, health checks, structured logging, and correlation IDs).
 
 It is not a production-hardened deployment. Treat it as a reference implementation you can run locally with Docker Compose.
+
+## What you'll learn
+
+- Integration events instead of chatty HTTP between services
+- Outbox publishing with MassTransit + RabbitMQ
+- Idempotent workers for payment, inventory and notifications
+- Correlation IDs and health checks in a local Docker stack
+- Clean Architecture boundaries adapted for a demo
+
+## Portfolio series
+
+| Repository | Focus |
+| ---------- | ----- |
+| [Microservices.Ecommerce](https://github.com/luismpenholato/Microservices.Ecommerce) | Microservices e-commerce + gateway + observability |
+| **This repo** | Order flow with RabbitMQ / MassTransit workers |
+| [EventStreaming.Analytics.Kafka](https://github.com/luismpenholato/EventStreaming.Analytics.Kafka) | Kafka analytics pipeline + CQRS read models |
+| [orderflow-operations](https://github.com/luismpenholato/orderflow-operations) | Node/React modular monolith (inventory + ERP outbox) |
+| [clean-stack](https://github.com/luismpenholato/clean-stack) | Full-stack starter (.NET 10 + Angular / React) |
 
 ## Architecture overview
 
@@ -356,6 +377,8 @@ docker compose down
 - [E2E tests](docs/e2e-tests.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
 - Architecture Decision Records:
   - [ADR 0001 — Event-driven architecture](docs/decisions/0001-use-event-driven-architecture.md)
   - [ADR 0002 — RabbitMQ + MassTransit](docs/decisions/0002-use-rabbitmq-with-masstransit.md)
@@ -366,3 +389,5 @@ docker compose down
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+Optional support for open-source maintenance: [GitHub Sponsors](https://github.com/sponsors/luismpenholato).
