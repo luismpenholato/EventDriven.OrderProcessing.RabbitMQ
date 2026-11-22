@@ -59,6 +59,7 @@ public static class IdempotentConsumerExecutor
         catch (DbUpdateConcurrencyException ex)
         {
             await transaction.RollbackAsync(CancellationToken.None);
+            dbContext.ChangeTracker.Clear();
 
             if (await IsAlreadyProcessedAsync(dbContext, eventId, consumerName, cancellationToken))
             {
@@ -76,6 +77,7 @@ public static class IdempotentConsumerExecutor
         catch
         {
             await transaction.RollbackAsync(CancellationToken.None);
+            dbContext.ChangeTracker.Clear();
             throw;
         }
     }
