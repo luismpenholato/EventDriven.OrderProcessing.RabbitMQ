@@ -48,4 +48,13 @@ public sealed class Product : AggregateRoot
         AvailableQuantity -= quantity;
         UpdatedAt = DateTime.UtcNow;
     }
+
+    public void Release(int quantity)
+    {
+        if (quantity <= 0)
+            throw new DomainException("Quantity must be greater than zero.");
+
+        AvailableQuantity += quantity;
+        UpdatedAt = DateTime.UtcNow;
+    }
 }
